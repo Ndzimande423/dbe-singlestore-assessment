@@ -210,7 +210,28 @@ Gather partitions:all
 ```
 
 ### DEBUG PROFILE
-Not supported in SingleStore v8.1. `SHOW PROFILE` used as the equivalent — provides the same operator-level execution statistics.
+
+```sql
+DEBUG PROFILE SELECT o.order_id, o.product, o.amount, p.category
+FROM orders_good o
+JOIN products p ON o.product = p.product_name
+WHERE p.category = 'Electronics';
+```
+```
+ERROR 1064 (42000): You have an error in your SQL syntax near 'DEBUG PROFILE SELECT'
+```
+
+`DEBUG PROFILE` is not supported in SingleStore v8.1. It was introduced in later versions. `SHOW PROFILE` was used as the equivalent and provides the same operator-level execution statistics.
+
+**What DEBUG PROFILE would show in a supported version:**
+- Per-node execution breakdown across every aggregator and leaf
+- Thread-level timing for each operator
+- Memory allocation per node
+- Network bytes sent and received per node pair
+- Lock wait times
+- Spill-to-disk events if memory was exceeded
+
+The key difference between PROFILE and DEBUG PROFILE is that PROFILE shows aggregated statistics across all nodes, while DEBUG PROFILE shows the breakdown per individual node — useful for identifying which specific node is the bottleneck in a multi-node cluster.
 
 ---
 
@@ -254,3 +275,52 @@ Poor shard key (status) leaves 13 of 16 partitions empty. At scale this means 81
 2. **Histograms collected** — `ANALYZE TABLE` run on all tables to improve optimizer estimates
 3. **Add indexes** for frequent filter columns on non-shard-key columns
 4. **Query plan caching** — warm up critical queries after deployment to avoid first-run compile latency
+
+---
+
+## Challenges Faced and Insights Gained
+
+### Challenge 1 — SingleStore Dev Image Partition Limit
+**Challenge:** The current SingleStore dev image (v0.2.40+) restricts databases to 2 partitions. The assessment requires 16 partitions per leaf.
+
+**Insight:** Reading the official GitHub README carefully before starting revealed this limitation proactively. This is a good practice — always review release notes and known limitations before designing a solution.
+
+**Resolution:** Used SingleStore version 8.1 which predates the restriction. The `SINGLESTORE_VERSION` environment variable allows running a specific version at container startup.
+
+---
+
+### Challenge 2 — Self-Managed License Unavailable
+**Challenge:** The SingleStore portal no longer provides free self-managed license keys directly. They must be requested via the enterprise contact form — a process that takes time and was not available during the assessment window.
+
+**Insight:** Product licensing models change over time. The assessment was likely written when free self-managed licenses were available instantly from the portal. Identifying this discrepancy and communicating it professionally is an important skill.
+
+**Resolution:** Used the Docker dev image with version 8.1 as a workaround. Documented the commands that would work with a proper license.
+
+---
+
+### Challenge 3 — Cluster Expansion Blocked
+**Challenge:** Adding a child aggregator and second leaf node to a Docker dev image is not possible. The Docker dev image is a sealed single-node environment. `sdb-admin` manages bare-metal installations only and cannot register Docker-based nodes.
+
+**Insight:** There is a fundamental architectural difference between Docker-based development deployments and production bare-metal/VM deployments. Understanding this boundary is important when designing environments.
+
+**Resolution:** Deployed two additional Docker containers (singlestore-child-agg, singlestore-leaf2) to demonstrate the attempt. Documented the exact commands that would work with a self-managed license and sdb-deploy.
+
+---
+
+### Challenge 4 — DEBUG PROFILE Not Supported in v8.1
+**Challenge:** `DEBUG PROFILE` syntax is not supported in SingleStore version 8.1, returning a syntax error.
+
+**Insight:** Feature availability varies across versions. `SHOW PROFILE` after running `PROFILE` provides equivalent operator-level statistics in v8.1. In newer versions, `DEBUG PROFILE` adds per-node breakdown which is valuable for diagnosing bottlenecks in multi-node clusters.
+
+**Resolution:** Used `SHOW PROFILE` and `EXPLAIN EXTENDED` together to capture the same level of detail. Documented what `DEBUG PROFILE` would show in a supported version.
+
+---
+
+### Key Insight — Shard Key Selection is Critical
+The most important design decision in SingleStore is the shard key. A poor shard key (low cardinality like `status`) wastes 81% of compute capacity by leaving 13 of 16 partitions empty. A good shard key (high cardinality like `order_id`) distributes work evenly across all partitions and enables partition pruning.
+
+### Key Insight — Reference Tables Enable Zero-Cost Broadcast Joins
+Storing small lookup tables as reference tables eliminates network shuffle entirely. The 0.112 KB network traffic on the broadcast query confirms this — joining a sharded table with a reference table costs almost nothing in network overhead regardless of how large the sharded table grows.
+
+### Key Insight — Compile Time Dominates First Execution
+SingleStore compiles queries to native machine code on first execution. The 23ms compile time vs 3ms actual execution time shows that in production, query warm-up after deployment is important to avoid first-run latency spikes.

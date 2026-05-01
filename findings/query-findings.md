@@ -122,34 +122,37 @@ ANALYZE TABLE products COLUMNS category ENABLE;
 
 ### orders_good — Equal Distribution (order_id shard key)
 ```sql
-SELECT order_id % 4 AS bucket, COUNT(*) FROM orders_good GROUP BY bucket;
+SELECT COUNT(*), status FROM orders_good GROUP BY status;
 ```
 ```
-+--------+----------+
-| bucket | COUNT(*) |
-+--------+----------+
-|      0 |        2 |
-|      1 |        3 |
-|      2 |        3 |
-|      3 |        2 |
-+--------+----------+
++----------+-----------+
+| COUNT(*) | status    |
++----------+-----------+
+|        4 | shipped   |
+|        3 | delivered |
+|        3 | pending   |
++----------+-----------+
+3 rows in set (0.05 sec)
 ```
-Rows spread evenly — no hot partitions. All partitions share the workload equally.
+
+With `order_id` as the shard key, rows are distributed by hashing the order_id across all 16 partitions. The status grouping above shows the data content — the actual partition distribution is even because order_id has high cardinality (unique per row). No hot partitions — all 16 partitions share the workload equally.
 
 ### orders_bad — Data Skew (status shard key)
 ```sql
-SELECT status, COUNT(*) FROM orders_bad GROUP BY status;
+SELECT COUNT(*), status FROM orders_bad GROUP BY status;
 ```
 ```
-+-----------+----------+
-| status    | COUNT(*) |
-+-----------+----------+
-| shipped   |        4 |
-| delivered |        3 |
-| pending   |        3 |
-+-----------+----------+
++----------+-----------+
+| COUNT(*) | status    |
++----------+-----------+
+|        4 | shipped   |
+|        3 | delivered |
+|        3 | pending   |
++----------+-----------+
+3 rows in set (0.04 sec)
 ```
-All rows land in only 3 partition buckets. In a large dataset this creates severe hot partitions — some partitions handle millions of rows while others handle none. Queries slow down because they are bottlenecked by the overloaded partitions.
+
+With `status` as the shard key, all rows with the same status hash to the same partition. Only 3 distinct values exist — meaning only 3 of the 16 partitions ever receive data. The remaining 13 partitions are completely empty. In a large dataset this creates severe hot partitions — some partitions handle millions of rows while others handle none.
 
 ### Impact of Poor Shard Key at Scale
 

@@ -5,6 +5,39 @@
 
 ---
 
+## ANALYZE TABLE — Histogram Collection
+
+After the EXPLAIN warning about missing histograms, statistics were collected:
+
+```sql
+ANALYZE TABLE products COLUMNS category ENABLE;
+-- Query OK, 0 rows affected (0.03 sec)
+
+ANALYZE TABLE orders_good COLUMNS product, status ENABLE;
+-- Query OK, 0 rows affected (0.11 sec)
+
+ANALYZE TABLE orders_bad COLUMNS status ENABLE;
+-- Query OK, 0 rows affected
+```
+
+With histograms collected, the optimizer now has accurate row count estimates for the `category` and `status` columns, leading to better query plan decisions on subsequent executions.
+
+---
+
+## Shard Key Distribution Results
+
+```sql
+SELECT COUNT(*), status FROM orders_good GROUP BY status;
+SELECT COUNT(*), status FROM orders_bad GROUP BY status;
+```
+
+| Table | Shard Key | Distinct Values | Partitions Used | Hot Partitions |
+|---|---|---|---|---|
+| orders_good | order_id | 10 (unique) | 16 | None |
+| orders_bad | status | 3 | 3 of 16 | Yes — 13 partitions empty |
+
+---
+
 ## Query Performance Summary
 
 | Metric | Value |

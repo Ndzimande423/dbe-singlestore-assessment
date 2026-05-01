@@ -1,7 +1,7 @@
 # DBE Technical Assessment - SingleStore
 **Candidate:** Lunga Ndzimande  
 **Account:** 281814941186 | **Region:** eu-west-1  
-**EC2 Instance:** m6a.2xlarge | **IP:** 34.242.222.87 (bastion)  
+**EC2 Instance:** m6a.2xlarge  
 **Repository:** https://github.com/Ndzimande423/dbe-singlestore-assessment
 
 ---
@@ -9,14 +9,21 @@
 ## Repository Structure
 
 ```
-├── documentation/
-│   ├── cluster-setup.md          # Cluster setup, Docker deployment, connection
-│   ├── database-tables.md        # Database creation, tables, shard keys, data distribution
-│   ├── query-plan-analysis.md    # Broadcast query, EXPLAIN, PROFILE, DEBUG PROFILE
-│   └── cluster-expansion.md     # Child aggregator and leaf node expansion attempts
+├── deployment/
+│   ├── cluster-deployment.md     # EC2 setup, Docker deployment, cluster topology, expansion attempts
+│   └── database-setup.md         # Database creation, tables, shard keys, data insertion
+│
+├── analysis/
+│   └── query-execution.md        # Broadcast query, EXPLAIN, EXPLAIN EXTENDED, PROFILE, DEBUG PROFILE
+│
+├── findings/
+│   └── query-findings.md         # EXPLAIN vs PROFILE comparison, shard key distribution analysis
+│
+├── performance/
+│   └── performance-analysis.md   # Execution timeline, broadcast join performance, optimization recommendations
 │
 ├── issues-and-fixes/
-│   └── deployment-issues.md     # Blockers encountered and resolutions
+│   └── deployment-issues.md      # Blockers encountered and resolutions
 │
 └── README.md
 ```
@@ -25,104 +32,77 @@
 
 ## Task 1 — Cluster Setup and Configuration
 
-### EC2 Instance
-| Item | Value |
-|---|---|
-| Instance class | m6a.2xlarge |
-| vCPUs | 8 |
-| RAM | 32GB |
-| OS | Ubuntu |
-| Region | eu-west-1 |
+### Evaluation Criteria: Initial Setup + Cluster Connection + Cluster Expansion
 
-### SingleStore Deployment
-SingleStore was deployed using the official Docker dev image (`singlestoredb-dev-image`).
+| Requirement | Status | Detail |
+|---|---|---|
+| EC2 m6a.2xlarge | ✅ | 8 vCPU, 32GB RAM, eu-west-1 |
+| SingleStore Cluster-in-a-box | ✅ | Docker v8.1, MA + 1 Leaf |
+| Connect via mysql client | ✅ | `singlestore -pAssessment@2025!` |
+| Child aggregator | ⚠️ | Blocked — Docker sealed environment, documented with commands |
+| Second leaf node | ⚠️ | Blocked — requires self-managed license, documented with commands |
 
-**Note on licensing:** The assessment requires 16 partitions per leaf. The current SingleStore dev image (v0.2.40+) restricts databases to 2 partitions. To work around this, SingleStore version 8.1 was used which predates the restriction.
-
-```bash
-sudo docker run -d --name singlestoredb-dev \
-  -e ROOT_PASSWORD="Assessment@2025!" \
-  -e SINGLESTORE_VERSION="8.1" \
-  -e SINGLESTORE_SET_GLOBAL_DEFAULT_PARTITIONS_PER_LEAF=16 \
-  -p 3306:3306 -p 8080:8080 -p 9000:9000 \
-  --restart unless-stopped \
-  ghcr.io/singlestore-labs/singlestoredb-dev:latest
-```
-
-**Cluster topology:**
-| Node | Port | Role | Status |
-|---|---|---|---|
-| singlestoredb-dev | 3306 | Master Aggregator | ✅ Online |
-| singlestoredb-dev | 3307 | Leaf Node 1 | ✅ Online |
-| singlestore-child-agg | 3308 | Child Aggregator (attempted) | ⚠️ Blocked |
-| singlestore-leaf2 | 3309 | Leaf Node 2 (attempted) | ⚠️ Blocked |
-
-### Cluster Connection
-```bash
-sudo docker exec -it singlestoredb-dev singlestore -pAssessment@2025!
-```
+**Full documentation:** `deployment/cluster-deployment.md`
 
 ---
 
 ## Task 2 — Database and Table Creation
 
-### Database with 16 Partitions
-```sql
-CREATE DATABASE assessment_db PARTITIONS 16;
-```
+### Evaluation Criteria: 16 partitions + Shard key variations + Data distribution
 
-### Tables Created
-| Table | Type | Shard Key | Distribution |
-|---|---|---|---|
-| orders_good | ROWSTORE | order_id | Even — high cardinality |
-| orders_bad | ROWSTORE | status | Skewed — only 3 distinct values |
-| products | REFERENCE | N/A | Replicated to all nodes |
+| Requirement | Status | Detail |
+|---|---|---|
+| Database with 16 partitions | ✅ | `CREATE DATABASE assessment_db PARTITIONS 16` |
+| orders_good — equal distribution | ✅ | SHARD KEY (order_id) — high cardinality, even spread |
+| orders_bad — data skew | ✅ | SHARD KEY (status) — 3 distinct values, hot partitions |
+| Reference table | ✅ | products — replicated to all nodes, triggers broadcast |
+| Data inserted | ✅ | 10 rows each table, 5 products |
 
-**Full documentation:** `documentation/database-tables.md`
+**Full documentation:** `deployment/database-setup.md`
 
 ---
 
 ## Task 3 — Query Execution and Plan Analysis
 
-### Broadcast Query
-A JOIN between a sharded table (`orders_good`) and a reference table (`products`) triggers a broadcast operation — the reference table is broadcast to all leaf nodes.
+### Evaluation Criteria: Broadcast query + EXPLAIN + PROFILE + DEBUG PROFILE + Analysis
 
-```sql
-SELECT o.order_id, o.product, o.amount, p.category
-FROM orders_good o
-JOIN products p ON o.product = p.product_name
-WHERE p.category = 'Electronics';
-```
+| Requirement | Status | Detail |
+|---|---|---|
+| Broadcast query designed | ✅ | orders_good JOIN products (sharded + reference) |
+| Query executed | ✅ | 4 rows returned — Electronics category |
+| EXPLAIN captured | ✅ | Shows HashJoin, ColumnStoreScan, Gather |
+| EXPLAIN EXTENDED captured | ✅ | Shows leaf-level SQL with STRAIGHT_JOIN |
+| PROFILE captured | ✅ | exec_time, memory_usage, network_traffic, segments |
+| DEBUG PROFILE | ⚠️ | Not supported in v8.1 — SHOW PROFILE used as equivalent |
+| Comparison documented | ✅ | Full table comparing all 4 outputs |
 
-**Outputs captured:**
-- `EXPLAIN` — logical query plan
-- `PROFILE` — execution statistics per operator
-- `DEBUG PROFILE` — detailed node-level execution breakdown
-
-**Full analysis:** `documentation/query-plan-analysis.md`
+**Full documentation:** `analysis/query-execution.md`
 
 ---
 
-## Task 4 — Cluster Expansion
+## Key Results
 
-Two additional Docker containers were deployed to simulate child aggregator and second leaf node:
-
-```bash
-# Child aggregator container
-sudo docker run -d --name singlestore-child-agg \
-  -e ROOT_PASSWORD="Assessment@2025!" \
-  -e SINGLESTORE_VERSION="8.1" \
-  -p 3308:3306 --restart unless-stopped \
-  ghcr.io/singlestore-labs/singlestoredb-dev:latest
-
-# Second leaf container  
-sudo docker run -d --name singlestore-leaf2 \
-  -e ROOT_PASSWORD="Assessment@2025!" \
-  -e SINGLESTORE_VERSION="8.1" \
-  -p 3309:3306 --restart unless-stopped \
-  ghcr.io/singlestore-labs/singlestoredb-dev:latest
+**Broadcast join confirmed:**
+```
+table_type:reference_columnstore   ← products is broadcast
+network_traffic: 0.112 KB          ← near-zero network overhead
+parallelism_level:partition        ← runs across all 16 partitions
 ```
 
-**Blocker:** The Docker dev image is a sealed single-node environment. `sdb-admin` manages bare-metal installations only and cannot register Docker-based nodes. A self-managed license is required for a proper multi-node cluster via `sdb-deploy`.
+**Shard key impact:**
+| Table | Shard Key | Distribution | Hot Partitions |
+|---|---|---|---|
+| orders_good | order_id | Even across 16 partitions | None |
+| orders_bad | status | 3 buckets only | Yes |
 
-**Full details:** `issues-and-fixes/deployment-issues.md`
+**Performance:**
+| Metric | Value |
+|---|---|
+| Total query time | 26ms |
+| Compile time (first run) | 23ms |
+| Segments skipped | 11 of 16 (columnstore pruning) |
+| Network traffic | 0.112 KB |
+
+**Full findings:** `findings/query-findings.md`  
+**Full performance analysis:** `performance/performance-analysis.md`  
+**Issues and blockers:** `issues-and-fixes/deployment-issues.md`

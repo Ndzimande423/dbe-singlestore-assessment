@@ -17,7 +17,8 @@
 │   └── query-execution.md        # Broadcast query, EXPLAIN, EXPLAIN EXTENDED, PROFILE, DEBUG PROFILE
 │
 ├── findings/
-│   └── query-findings.md         # EXPLAIN vs PROFILE comparison, shard key distribution analysis
+│   ├── query-findings.md         # EXPLAIN vs PROFILE comparison, shard key distribution analysis
+│   └── cluster-architecture.md   # Current vs expanded cluster, data distribution across 2 leaves, query flow
 │
 ├── performance/
 │   └── performance-analysis.md   # Execution timeline, broadcast join performance, optimization recommendations
@@ -25,6 +26,7 @@
 ├── issues-and-fixes/
 │   └── deployment-issues.md      # Blockers encountered and resolutions
 │
+├── final-report.md               # Comprehensive report covering all deliverables
 └── README.md
 ```
 
@@ -104,5 +106,41 @@ parallelism_level:partition        ← runs across all 16 partitions
 | Network traffic | 0.112 KB |
 
 **Full findings:** `findings/query-findings.md`  
+**Cluster architecture:** `findings/cluster-architecture.md`  
 **Full performance analysis:** `performance/performance-analysis.md`  
-**Issues and blockers:** `issues-and-fixes/deployment-issues.md`
+**Issues and blockers:** `issues-and-fixes/deployment-issues.md`  
+**Final report:** `final-report.md`
+
+---
+
+## Cluster Architecture — Current vs Expanded
+
+**Current setup (1 MA + 1 Leaf):**
+```
+Master Aggregator (port 3306)
+        │
+   Leaf Node 1 (port 3307)
+   └── ALL 16 partitions (P0–PF)
+       └── All data stored here
+```
+
+**Expanded setup (1 MA + 1 CA + 2 Leaves):**
+```
+Master Aggregator (port 3306)
+        │
+Child Aggregator (port 3308)
+        │
+   ┌────┴────┐
+Leaf 1      Leaf 2
+P0–P7       P8–PF
+~5 rows     ~5 rows  ← data split automatically
+```
+
+| Aspect | 1 Leaf (current) | 2 Leaves (expanded) |
+|---|---|---|
+| Partitions per leaf | 16 | 8 each |
+| Storage capacity | 1× | 2× |
+| Query throughput | Single leaf | Both leaves parallel |
+| Fault tolerance | None | Partial — each leaf owns its partitions |
+
+**Full architecture details:** `findings/cluster-architecture.md`

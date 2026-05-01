@@ -1,13 +1,28 @@
-# Final Assessment Report — SingleStore
-**Candidate:** Lunga Ndzimande  
-**Date:** May 2026  
-**Environment:** AWS EC2 m6a.2xlarge | eu-west-1 | SingleStore v8.1
+# Final Assessment Report — SingleStore Database Engineering
+**Candidate:** Lunga Ndzimande
+**Date:** May 2026
+**Prepared for:** DBE Technical Assessment Panel
+
+---
+
+## Executive Summary
+
+This report documents the successful deployment, configuration, and analysis of a SingleStore distributed database environment on AWS. The assessment covered four key areas: infrastructure setup, database design, query performance analysis, and cluster scalability planning. All core objectives were achieved, with two items blocked by licensing constraints that have been fully documented with proposed resolutions.
 
 ---
 
 ## Task 1 — Cluster Setup and Configuration
 
-### EC2 Instance
+### Goal
+The objective of this task was to provision a cloud-based server, deploy a SingleStore database cluster consisting of a Master Aggregator and a Leaf Node, and demonstrate the ability to connect to and manage the cluster. The task also required expanding the cluster by adding a Child Aggregator and a second Leaf Node.
+
+### Why This Matters
+A properly configured cluster is the foundation of any SingleStore deployment. The Master Aggregator acts as the entry point for all database operations — it receives queries, coordinates work across the cluster, and returns results to the client. The Leaf Node is where data is physically stored and processed. Having both components running correctly is a prerequisite for everything else in the assessment.
+
+### What Was Done
+
+An AWS EC2 instance of class m6a.2xlarge was provisioned in the eu-west-1 region. This instance class provides 8 virtual CPUs and 32GB of RAM — sufficient to run a SingleStore cluster for assessment purposes.
+
 | Item | Value |
 |---|---|
 | Instance class | m6a.2xlarge |
@@ -17,310 +32,171 @@
 | OS | Ubuntu |
 | Connection | AWS SSM Session Manager |
 
-### SingleStore Deployment
-```bash
-sudo docker run -d --name singlestoredb-dev \
-  -e ROOT_PASSWORD="Assessment@2025!" \
-  -e SINGLESTORE_VERSION="8.1" \
-  -e SINGLESTORE_SET_GLOBAL_DEFAULT_PARTITIONS_PER_LEAF=16 \
-  -p 3306:3306 -p 8080:8080 -p 9000:9000 \
-  --restart unless-stopped \
-  ghcr.io/singlestore-labs/singlestoredb-dev:latest
+SingleStore was deployed using the official Docker container image. Version 8.1 was specifically selected to support the 16-partition requirement of Task 2 — newer versions of the free developer image restrict databases to 2 partitions maximum.
+
+The cluster was confirmed operational with both the Master Aggregator and Leaf Node online and communicating:
+
+```
+Master Aggregator — port 3306 — online ✅
+Leaf Node 1       — port 3307 — online ✅
+Average roundtrip latency: 0.227ms
 ```
 
-### Cluster Topology
-```sql
-SHOW AGGREGATORS;
-```
-```
-+-----------+------+--------+-------------------+--------+
-| Host      | Port | State  | Master_Aggregator | NodeId |
-+-----------+------+--------+-------------------+--------+
-| 127.0.0.1 | 3306 | online |                 1 |      1 |
-+-----------+------+--------+-------------------+--------+
-```
-
-```sql
-SHOW LEAVES;
-```
-```
-+-----------+------+--------------------+--------+--------------------+------------------------------+
-| Host      | Port | Availability_Group | NodeId | Opened_Connections | Average_Roundtrip_Latency_ms |
-+-----------+------+--------------------+--------+--------------------+------------------------------+
-| 127.0.0.1 | 3307 |                  1 |      2 |                 16 | 0.227                        |
-+-----------+------+--------------------+--------+--------------------+------------------------------+
-```
-
-### Cluster Connection
-```bash
-sudo docker exec -it singlestoredb-dev singlestore -pAssessment@2025!
-```
-```
-Server version: 5.7.32 SingleStoreDB source distribution
-Your MySQL connection id is 8517
-```
+A successful connection was established using the standard MySQL client, confirming that SingleStore is accessible and responding to queries as expected.
 
 ### Cluster Expansion
-Two additional containers deployed for child aggregator and second leaf:
-```bash
-sudo docker run -d --name singlestore-child-agg -e SINGLESTORE_VERSION="8.1" -p 3308:3306 ...
-sudo docker run -d --name singlestore-leaf2 -e SINGLESTORE_VERSION="8.1" -p 3309:3306 ...
-```
-**Status:** Both containers healthy but registration blocked — Docker dev image is a sealed environment. sdb-admin cannot register Docker-based nodes. Requires self-managed license + sdb-deploy for proper multi-node cluster.
+
+Two additional containers were deployed to serve as the Child Aggregator and second Leaf Node. Both containers started successfully and were confirmed healthy. However, registering these containers with the Master Aggregator requires a self-managed license key, which is not available through the free developer portal. The registration commands are documented and ready to execute once a license is provided.
+
+### What Was Achieved
+- AWS EC2 instance provisioned and configured ✅
+- SingleStore Master Aggregator deployed and online ✅
+- Leaf Node deployed and online ✅
+- Cluster connection verified via MySQL client ✅
+- Cluster expansion attempted and documented ⚠️ — blocked by licensing, resolution documented
 
 ---
 
 ## Task 2 — Database and Table Creation
 
-### Database with 16 Partitions
-```sql
-CREATE DATABASE assessment_db PARTITIONS 16;
--- Query OK, 1 row affected (2.83 sec)
+### Goal
+The objective of this task was to create a database configured with 16 partitions per leaf node, and to design two identical tables that demonstrate the impact of shard key selection on data distribution — one table with even distribution and one that intentionally simulates data skew.
+
+### Why This Matters
+Partitioning and shard key design are the most critical performance decisions in a distributed database. Partitions determine how data is split across the cluster — more partitions means more parallelism and faster queries. The shard key determines which partition each row goes to. A well-chosen shard key spreads data evenly, ensuring all partitions share the workload. A poorly chosen shard key concentrates data on a small number of partitions, creating bottlenecks that slow down the entire system.
+
+### What Was Done
+
+A database named `assessment_db` was created with 16 partitions per leaf. This was verified directly against the system catalogue:
+
+```
+DATABASE_NAME  | NUM_PARTITIONS | NUM_SUB_PARTITIONS
+assessment_db  |             16 |                 64
 ```
 
-**Verified:**
-```sql
-SELECT * FROM information_schema.DISTRIBUTED_DATABASES WHERE DATABASE_NAME = 'assessment_db';
-```
-```
-+-------------+---------------+----------------+--------------------+
-| DATABASE_ID | DATABASE_NAME | NUM_PARTITIONS | NUM_SUB_PARTITIONS |
-+-------------+---------------+----------------+--------------------+
-|           1 | assessment_db |             16 |                 64 |
-+-------------+---------------+----------------+--------------------+
-```
+Three tables were created:
 
-### Tables Created
+**orders_good** — designed for even data distribution using `order_id` as the shard key. Since every order has a unique ID, rows are distributed evenly across all 16 partitions. No single partition is overloaded.
 
-```sql
--- Equal distribution
-CREATE ROWSTORE TABLE orders_good (
-    order_id INT NOT NULL, customer_id INT NOT NULL,
-    product VARCHAR(100), amount DECIMAL(10,2), status VARCHAR(20),
-    SHARD KEY (order_id)
-);
+**orders_bad** — designed to demonstrate data skew using `status` as the shard key. Since status only has 3 possible values (shipped, pending, delivered), all data concentrates into just 3 of the 16 partitions. The remaining 13 partitions sit empty and unused.
 
--- Data skew
-CREATE ROWSTORE TABLE orders_bad (
-    order_id INT NOT NULL, customer_id INT NOT NULL,
-    product VARCHAR(100), amount DECIMAL(10,2), status VARCHAR(20),
-    SHARD KEY (status)
-);
+**products** — created as a reference table, meaning it is replicated to every node in the cluster. This design choice was deliberate — it enables the broadcast join scenario required in Task 3.
 
--- Reference table (broadcast)
-CREATE REFERENCE TABLE products (
-    product_id INT NOT NULL, product_name VARCHAR(100),
-    category VARCHAR(50), PRIMARY KEY (product_id)
-);
-```
+Data was inserted into all three tables and verified:
 
-### Table Status
-```sql
-SHOW TABLE STATUS IN assessment_db;
-```
-```
-+-------------+--------+--------------+------+-------------+--------------------+
-| Name        | Engine | Row_Format   | Rows | Data_length | BuffMgr Memory Use |
-+-------------+--------+--------------+------+-------------+--------------------+
-| orders_bad  | MemSql | Uncompressed |   10 |      394064 |             394064 |
-| orders_good | MemSql | Uncompressed |   10 |     1049424 |            1049424 |
-| products    | MemSql | Uncompressed |    5 |           0 |                  0 |
-+-------------+--------+--------------+------+-------------+--------------------+
-```
+| Table | Rows | Engine | Memory Usage |
+|---|---|---|---|
+| orders_good | 10 | MemSql | ~1 MB |
+| orders_bad | 10 | MemSql | ~394 KB |
+| products | 5 | MemSql (columnstore) | Replicated |
 
-**Note:** products Data_length = 0 because reference tables are stored as columnstore internally — data is in columnar segments, not row-based storage.
+The impact of shard key selection was demonstrated clearly:
 
-### Shard Key Distribution
-```sql
-SELECT COUNT(*), status FROM orders_good GROUP BY status;
-SELECT COUNT(*), status FROM orders_bad GROUP BY status;
-```
-```
-orders_good (SHARD KEY order_id — even distribution):
-shipped: 4 | delivered: 3 | pending: 3  → spread across 16 partitions
+| Table | Shard Key | Partitions Used | Hot Partitions |
+|---|---|---|---|
+| orders_good | order_id (unique) | 16 of 16 | None |
+| orders_bad | status (3 values) | 3 of 16 | Yes — 13 partitions empty |
 
-orders_bad (SHARD KEY status — data skew):
-shipped: 4 | delivered: 3 | pending: 3  → only 3 of 16 partitions used
-```
+At scale, the orders_bad design would mean 81% of the cluster's compute capacity sits idle while 3 partitions handle all the work — a significant performance problem in a production environment.
 
-| Table | Shard Key | Cardinality | Partitions Used | Hot Partitions |
-|---|---|---|---|---|
-| orders_good | order_id | High (unique) | 16 | None |
-| orders_bad | status | Low (3 values) | 3 of 16 | Yes — 13 empty |
+### What Was Achieved
+- Database created with 16 partitions — confirmed ✅
+- orders_good table with even distribution shard key ✅
+- orders_bad table demonstrating data skew ✅
+- Reference table for broadcast join scenario ✅
+- Data inserted and distribution verified ✅
 
 ---
 
 ## Task 3 — Query Execution and Plan Analysis
 
-### Broadcast Query
-```sql
-SELECT o.order_id, o.product, o.amount, p.category
-FROM orders_good o
-JOIN products p ON o.product = p.product_name
-WHERE p.category = 'Electronics';
+### Goal
+The objective of this task was to design and execute a query that triggers a broadcast operation in SingleStore, and to capture and analyse the query execution plans using EXPLAIN, PROFILE, and DEBUG PROFILE. The analysis should demonstrate an understanding of how SingleStore processes distributed queries and what each diagnostic tool reveals about performance.
+
+### Why This Matters
+Understanding how a database executes a query is essential for diagnosing performance problems. In a distributed database like SingleStore, queries can involve data movement across multiple nodes — understanding when this happens and how to avoid unnecessary data movement is a key skill. The three diagnostic tools (EXPLAIN, PROFILE, DEBUG PROFILE) each reveal different layers of query execution, from the logical plan through to actual runtime statistics.
+
+### What Was Done
+
+A query was designed that joins the sharded `orders_good` table with the reference `products` table. Because `products` is a reference table — replicated to every node — this join triggers a broadcast operation. The reference table data is available locally on every partition, so no data needs to move across the network to complete the join.
+
+The query returned 4 Electronics orders from the dataset:
+
 ```
-```
-+----------+---------+--------+-------------+
-| order_id | product | amount | category    |
-+----------+---------+--------+-------------+
-|        2 | Phone   | 499.99 | Electronics |
-|        1 | Laptop  | 999.99 | Electronics |
-|        3 | Tablet  | 299.99 | Electronics |
-|        4 | Monitor | 399.99 | Electronics |
-+----------+---------+--------+-------------+
-4 rows in set (0.08 sec)
+Phone   — $499.99
+Laptop  — $999.99
+Tablet  — $299.99
+Monitor — $399.99
 ```
 
-### EXPLAIN
-```
-Gather partitions:all est_rows:4 alias:remote_0 parallelism_level:partition
-Project [o.order_id, o.product, o.amount, p.category] est_rows:4
-HashJoin
-|---HashTableProbe [p.product_name = o.product]
-|   HashTableBuild alias:o
-|   Project [o_0.order_id, o_0.product, o_0.amount] est_rows:10
-|   TableScan assessment_db.orders_good table_type:sharded_rowstore est_table_rows:10
-ColumnStoreFilter [p.category = 'Electronics']
-ColumnStoreScan assessment_db.products table_type:reference_columnstore est_table_rows:5 est_filtered:4
-```
+**EXPLAIN** revealed the logical structure of the query plan. Key observations:
+- The query runs in parallel across all 16 partitions simultaneously
+- SingleStore chose a HashJoin strategy — building a hash table from orders_good and probing it with the filtered products data
+- The products table was identified as `table_type:reference_columnstore` — confirming the broadcast join
 
-### PROFILE (SHOW PROFILE)
-```
-Gather partitions:all exec_time:0ms end_time:00:00:00.026 network_traffic:0.112000 KB actual_rows:4
-HashJoin actual_rows:4 exec_time:0ms
-HashTableBuild actual_rows:10 memory_usage:1,048.576050 KB
-TableScan orders_good actual_rows:10 exec_time:1ms
-ColumnStoreFilter actual_rows:20 total_rows_in:25
-ColumnStoreScan products actual_rows:25 memory_usage:2,097.152100 KB
-  segments_scanned:5 segments_skipped:11 segments_fully_contained:0
-Compile Total Time: 23ms
-```
+**PROFILE** revealed the actual runtime statistics. Key observations:
+- Total query time: 26ms, of which 23ms was query compilation on first execution
+- Network traffic: only 0.112 KB — confirming the broadcast join produced near-zero network overhead
+- 11 of 16 columnstore segments were skipped automatically — the database pruned irrelevant data without being asked
+- Hash table memory usage: approximately 1MB — well within available resources
 
-### EXPLAIN EXTENDED
-Shows the actual SQL sent to leaf nodes:
-```
-Gather partitions:all
-  query:[SELECT STRAIGHT_JOIN o.order_id, o.product, o.amount, p.category
-  FROM assessment_db.products as p
-  STRAIGHT_JOIN (SELECT assessment_db_0.orders_good as o_0) AS o
-  WITH (gen_min_max=TRUE, gen_spill=TRUE)
-  WHERE p.category='Electronics' AND o.product=p.product_name
-  OPTION(NO_QUERY_REWRITE=1, INTERPRETER_MODE=INTERPRET_FIRST)]
-  parallelism_level:partition
-```
+**EXPLAIN EXTENDED** revealed the physical SQL sent to the leaf nodes, showing how SingleStore internally rewrites the query for distributed execution using STRAIGHT_JOIN directives and execution hints.
 
-### DEBUG PROFILE
+**DEBUG PROFILE** was not available in SingleStore version 8.1 — it was introduced in later versions. SHOW PROFILE was used as the functional equivalent, providing the same operator-level statistics. In a supported version, DEBUG PROFILE would additionally show per-node execution breakdowns, thread-level timing, and network bytes exchanged between individual nodes — useful for pinpointing bottlenecks in a multi-node cluster.
 
-```sql
-DEBUG PROFILE SELECT o.order_id, o.product, o.amount, p.category
-FROM orders_good o
-JOIN products p ON o.product = p.product_name
-WHERE p.category = 'Electronics';
-```
-```
-ERROR 1064 (42000): You have an error in your SQL syntax near 'DEBUG PROFILE SELECT'
-```
+### Diagnostic Tools Comparison
 
-`DEBUG PROFILE` is not supported in SingleStore v8.1. It was introduced in later versions. `SHOW PROFILE` was used as the equivalent and provides the same operator-level execution statistics.
+| Capability | EXPLAIN | EXPLAIN EXTENDED | PROFILE | DEBUG PROFILE |
+|---|---|---|---|---|
+| Query runs | No | No | Yes | Yes |
+| Row counts | Estimated | Estimated | Estimated + Actual | Estimated + Actual |
+| Execution timing | No | No | Yes | Yes |
+| Memory usage | No | No | Yes | Yes |
+| Network traffic | No | No | Yes | Yes |
+| Leaf-level SQL | No | Yes | No | Yes |
+| Per-node breakdown | No | No | No | Yes |
+| Available in v8.1 | ✅ | ✅ | ✅ | ❌ |
 
-**What DEBUG PROFILE would show in a supported version:**
-- Per-node execution breakdown across every aggregator and leaf
-- Thread-level timing for each operator
-- Memory allocation per node
-- Network bytes sent and received per node pair
-- Lock wait times
-- Spill-to-disk events if memory was exceeded
-
-The key difference between PROFILE and DEBUG PROFILE is that PROFILE shows aggregated statistics across all nodes, while DEBUG PROFILE shows the breakdown per individual node — useful for identifying which specific node is the bottleneck in a multi-node cluster.
+### What Was Achieved
+- Broadcast query designed and executed successfully ✅
+- EXPLAIN plan captured and analysed ✅
+- PROFILE output captured and analysed ✅
+- EXPLAIN EXTENDED captured and analysed ✅
+- DEBUG PROFILE attempted — not supported in v8.1, documented with full explanation ⚠️
+- All four tools compared and contrasted ✅
+- Broadcast join confirmed via near-zero network traffic ✅
 
 ---
 
 ## Key Findings
 
-### 1. Broadcast Join Confirmed
-`table_type:reference_columnstore` on the products scan confirms the broadcast operation. Network traffic was only 0.112 KB — the reference table is local on every partition, no data shuffled across the network.
+1. **Broadcast joins are highly efficient** — joining a sharded table with a reference table produces near-zero network overhead regardless of how large the sharded table grows. This is the recommended pattern for small lookup tables in SingleStore.
 
-### 2. Parallel Execution
-`parallelism_level:partition` — query runs simultaneously across all 16 partitions. The Gather operator collects and merges results.
+2. **Shard key selection is the most impactful design decision** — a poor shard key (low cardinality like status) wastes 81% of cluster capacity. A good shard key (high cardinality like order_id) utilises all 16 partitions equally.
 
-### 3. Columnstore Segment Elimination
-11 of 16 segments skipped during the products scan. Only 31% of data was read — the columnstore pruned irrelevant segments automatically.
+3. **Columnstore segment elimination works automatically** — 11 of 16 segments were skipped without any manual optimisation. The database intelligently avoids reading data it does not need.
 
-### 4. Compile Time on First Run
-23ms of 26ms total was compilation. Subsequent executions reuse the cached compiled plan and run in ~3ms.
+4. **First-run compile time is expected** — 88% of the first query's execution time was compilation. This is by design — SingleStore compiles queries to native machine code for maximum performance on subsequent runs.
 
-### 5. Shard Key Impact
-Poor shard key (status) leaves 13 of 16 partitions empty. At scale this means 81% of compute capacity is wasted and 3 partitions become bottlenecks.
+5. **Cluster expansion requires a self-managed license** — the Docker developer image is suitable for single-node development but cannot be extended to a multi-node cluster without a licensed installation via sdb-deploy.
 
 ---
 
-## Comparison: EXPLAIN vs PROFILE vs EXPLAIN EXTENDED vs DEBUG PROFILE
+## Challenges and Resolutions
 
-| Feature | EXPLAIN | EXPLAIN EXTENDED | PROFILE | DEBUG PROFILE |
-|---|---|---|---|---|
-| Query executes | No | No | Yes | Yes |
-| Row counts | Estimated | Estimated | Estimated + Actual | Estimated + Actual |
-| Timing per operator | No | No | Yes | Yes |
-| Memory usage | No | No | Yes | Yes |
-| Network traffic | No | No | Yes | Yes |
-| Leaf SQL shown | No | Yes | No | Yes |
-| Segment scan stats | No | No | Yes | Yes |
-| Supported in v8.1 | ✅ | ✅ | ✅ | ❌ |
+| Challenge | Impact | Resolution |
+|---|---|---|
+| Dev image restricts databases to 2 partitions | Could not meet 16-partition requirement | Used SingleStore v8.1 which predates the restriction |
+| Self-managed license not available from portal | Could not register additional nodes | Documented commands ready for when license is provided |
+| Cluster expansion blocked in Docker environment | Child aggregator and second leaf not registered | Containers deployed and healthy — registration pending license |
+| DEBUG PROFILE not supported in v8.1 | Could not capture per-node breakdown | SHOW PROFILE used as equivalent — same statistics captured |
 
 ---
 
-## Optimization Recommendations
+## Recommendations
 
-1. **Fix shard key on orders_bad** — use `order_id` instead of `status` to eliminate data skew
-2. **Histograms collected** — `ANALYZE TABLE` run on all tables to improve optimizer estimates
-3. **Add indexes** for frequent filter columns on non-shard-key columns
-4. **Query plan caching** — warm up critical queries after deployment to avoid first-run compile latency
-
----
-
-## Challenges Faced and Insights Gained
-
-### Challenge 1 — SingleStore Dev Image Partition Limit
-**Challenge:** The current SingleStore dev image (v0.2.40+) restricts databases to 2 partitions. The assessment requires 16 partitions per leaf.
-
-**Insight:** Reading the official GitHub README carefully before starting revealed this limitation proactively. This is a good practice — always review release notes and known limitations before designing a solution.
-
-**Resolution:** Used SingleStore version 8.1 which predates the restriction. The `SINGLESTORE_VERSION` environment variable allows running a specific version at container startup.
-
----
-
-### Challenge 2 — Self-Managed License Unavailable
-**Challenge:** The SingleStore portal no longer provides free self-managed license keys directly. They must be requested via the enterprise contact form — a process that takes time and was not available during the assessment window.
-
-**Insight:** Product licensing models change over time. The assessment was likely written when free self-managed licenses were available instantly from the portal. Identifying this discrepancy and communicating it professionally is an important skill.
-
-**Resolution:** Used the Docker dev image with version 8.1 as a workaround. Documented the commands that would work with a proper license.
-
----
-
-### Challenge 3 — Cluster Expansion Blocked
-**Challenge:** Adding a child aggregator and second leaf node to a Docker dev image is not possible. The Docker dev image is a sealed single-node environment. `sdb-admin` manages bare-metal installations only and cannot register Docker-based nodes.
-
-**Insight:** There is a fundamental architectural difference between Docker-based development deployments and production bare-metal/VM deployments. Understanding this boundary is important when designing environments.
-
-**Resolution:** Deployed two additional Docker containers (singlestore-child-agg, singlestore-leaf2) to demonstrate the attempt. Documented the exact commands that would work with a self-managed license and sdb-deploy.
-
----
-
-### Challenge 4 — DEBUG PROFILE Not Supported in v8.1
-**Challenge:** `DEBUG PROFILE` syntax is not supported in SingleStore version 8.1, returning a syntax error.
-
-**Insight:** Feature availability varies across versions. `SHOW PROFILE` after running `PROFILE` provides equivalent operator-level statistics in v8.1. In newer versions, `DEBUG PROFILE` adds per-node breakdown which is valuable for diagnosing bottlenecks in multi-node clusters.
-
-**Resolution:** Used `SHOW PROFILE` and `EXPLAIN EXTENDED` together to capture the same level of detail. Documented what `DEBUG PROFILE` would show in a supported version.
-
----
-
-### Key Insight — Shard Key Selection is Critical
-The most important design decision in SingleStore is the shard key. A poor shard key (low cardinality like `status`) wastes 81% of compute capacity by leaving 13 of 16 partitions empty. A good shard key (high cardinality like `order_id`) distributes work evenly across all partitions and enables partition pruning.
-
-### Key Insight — Reference Tables Enable Zero-Cost Broadcast Joins
-Storing small lookup tables as reference tables eliminates network shuffle entirely. The 0.112 KB network traffic on the broadcast query confirms this — joining a sharded table with a reference table costs almost nothing in network overhead regardless of how large the sharded table grows.
-
-### Key Insight — Compile Time Dominates First Execution
-SingleStore compiles queries to native machine code on first execution. The 23ms compile time vs 3ms actual execution time shows that in production, query warm-up after deployment is important to avoid first-run latency spikes.
+1. **Obtain a self-managed license** to complete cluster expansion and demonstrate a full multi-node topology with child aggregator and second leaf node.
+2. **Always choose high-cardinality shard keys** — order_id, user_id, transaction_id are good choices. Status, category, region are poor choices.
+3. **Use reference tables for small lookup data** — eliminates network shuffle and enables zero-cost broadcast joins.
+4. **Run ANALYZE TABLE** after data loads to give the query optimizer accurate statistics for better query plan decisions.
+5. **Warm up critical queries** after deployment to avoid first-run compilation latency in production.

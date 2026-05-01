@@ -32,7 +32,7 @@ An AWS EC2 instance of class m6a.2xlarge was provisioned in the eu-west-1 region
 | OS | Ubuntu |
 | Connection | AWS SSM Session Manager |
 
-SingleStore was deployed using the official Docker container image. Version 8.1 was specifically selected to support the 16-partition requirement of Task 2 — newer versions of the free developer image restrict databases to 2 partitions maximum.
+SingleStore was deployed using the official Docker container image. Version 8.1 was selected after identifying that newer versions of the free developer image restrict databases to 2 partitions maximum. Using version 8.1 allowed the 16-partition requirement to be met successfully — confirmed by querying the system catalogue directly.
 
 The cluster was confirmed operational with both the Master Aggregator and Leaf Node online and communicating:
 

@@ -16,6 +16,19 @@ Query OK, 1 row affected (2.83 sec)
 
 16 partitions distribute data across 16 buckets on the leaf node enabling parallel query execution across all partitions simultaneously.
 
+### Verified with:
+```sql
+SELECT * FROM information_schema.DISTRIBUTED_DATABASES WHERE DATABASE_NAME = 'assessment_db';
+```
+```
++-------------+---------------+----------------+--------------------+
+| DATABASE_ID | DATABASE_NAME | NUM_PARTITIONS | NUM_SUB_PARTITIONS |
++-------------+---------------+----------------+--------------------+
+|           1 | assessment_db |             16 |                 64 |
++-------------+---------------+----------------+--------------------+
+```
+16 partitions confirmed ✅
+
 ```sql
 USE assessment_db;
 ```

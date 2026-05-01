@@ -27,6 +27,20 @@ The assessment requires 16 partitions per leaf. The current SingleStore dev imag
 
 A self-managed license was investigated through the SingleStore portal. The portal no longer provides free self-managed license keys — they must be requested via the enterprise contact form. As a workaround, SingleStore version 8.1 was used which predates the restriction.
 
+**Result:** 16 partitions were successfully created and confirmed:
+
+```sql
+SELECT * FROM information_schema.DISTRIBUTED_DATABASES WHERE DATABASE_NAME = 'assessment_db';
+```
+
+```
++-------------+---------------+----------------+--------------------+
+| DATABASE_ID | DATABASE_NAME | NUM_PARTITIONS | NUM_SUB_PARTITIONS |
++-------------+---------------+----------------+--------------------+
+|           1 | assessment_db |             16 |                 64 |
++-------------+---------------+----------------+--------------------+
+```
+
 Full details: `issues-and-fixes/deployment-issues.md`
 
 ---

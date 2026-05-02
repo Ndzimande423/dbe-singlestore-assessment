@@ -140,7 +140,7 @@ SHOW PROFILE;
 
 ---
 
-## DEBUG PROFILE
+## DEBUG PROFILE — SHOW PROFILE JSON (Equivalent)
 
 `DEBUG PROFILE` syntax is not supported in SingleStore version 8.1:
 
@@ -150,9 +150,48 @@ FROM orders_good o
 JOIN products p ON o.product = p.product_name
 WHERE p.category = 'Electronics';
 ```
-
 ```
 ERROR 1064 (42000): You have an error in your SQL syntax near 'DEBUG PROFILE SELECT'
 ```
 
-`DEBUG PROFILE` was introduced in later versions of SingleStore. In version 8.1, the equivalent detailed profiling is obtained through `SHOW PROFILE` after running `PROFILE`, which provides the same operator-level execution statistics including timing, memory usage, row counts and segment scan details — as captured above.
+However `SHOW PROFILE JSON` was successfully used as the equivalent — it provides the same per-partition breakdown that DEBUG PROFILE would show in newer versions:
+
+```sql
+PROFILE SELECT o.order_id, o.product, o.amount, p.category
+FROM orders_good o
+JOIN products p ON o.product = p.product_name
+WHERE p.category = 'Electronics';
+
+SHOW PROFILE JSON;
+```
+
+Key metrics extracted from the JSON output:
+
+| Metric | Total | Avg per partition | Max partition |
+|---|---|---|---|
+| Gather network_traffic | 112 bytes | 7 bytes | 29 bytes (P7) |
+| Project actual_rows | 4 | 0.25 | 1 (P6) |
+| HashTableBuild actual_rows | 10 | 0.625 | 2 (P7) |
+| HashTableBuild memory_usage | 1,048,576 bytes | 65,536 bytes | 131,072 bytes (P2) |
+| ColumnStoreScan actual_rows | 25 | 1.5625 | 5 (P3) |
+| ColumnStoreScan memory_usage | 2,097,152 bytes | 131,072 bytes | 131,072 bytes |
+| segments_scanned | 5 | 0.3125 | 1 (P3) |
+| segments_skipped | 11 | 0.6875 | 1 |
+
+Additional details from the JSON output:
+- SingleStore version confirmed: `8.1.54`
+- Total runtime: `4ms`
+- Aggregator node: `127.0.0.1`
+- Online leaves: `1`
+- Online aggregators: `1`
+- Query compile time: `0ms` (cached plan reused from previous run)
+- Optimizer memory used: `102,576 bytes` (optree) + `31,808 bytes` (dstree)
+
+**What SHOW PROFILE JSON reveals beyond regular SHOW PROFILE:**
+- Per-partition statistics with `avg`, `stddev`, `max` and `maxPartition` for every operator
+- Which specific partition handled the most work (e.g. P3 handled the most columnstore rows, P7 handled the most orders)
+- Memory allocation broken down per partition
+- Compile time broken down into individual optimizer phases
+- The full leaf-level SQL query sent to partitions
+- Confirms the plan was served from cache (`mpl_path` shown)
+

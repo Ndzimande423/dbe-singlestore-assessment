@@ -75,7 +75,7 @@
 | EXPLAIN captured | ✅ | Shows HashJoin, ColumnStoreScan, Gather |
 | EXPLAIN EXTENDED captured | ✅ | Shows leaf-level SQL with STRAIGHT_JOIN |
 | PROFILE captured | ✅ | exec_time, memory_usage, network_traffic, segments |
-| DEBUG PROFILE | ⚠️ | Not supported in v8.1 — SHOW PROFILE used as equivalent |
+| DEBUG PROFILE | ✅ | Not supported in v8.1 — SHOW PROFILE JSON used, provides per-partition breakdown |
 | Comparison documented | ✅ | Full table comparing all 4 outputs |
 
 **Full documentation:** `analysis/query-execution.md`

@@ -100,21 +100,21 @@ ANALYZE TABLE products COLUMNS category ENABLE;
 
 ---
 
-## Comparison: EXPLAIN vs PROFILE vs EXPLAIN EXTENDED vs DEBUG PROFILE
+## Comparison: EXPLAIN vs PROFILE vs EXPLAIN EXTENDED vs SHOW PROFILE JSON
 
-| Feature | EXPLAIN | EXPLAIN EXTENDED | PROFILE | DEBUG PROFILE |
+| Feature | EXPLAIN | EXPLAIN EXTENDED | PROFILE | SHOW PROFILE JSON |
 |---|---|---|---|---|
-| Purpose | Logical query plan | Physical SQL sent to leaves | Actual execution statistics | Node-level execution detail |
+| Purpose | Logical query plan | Physical SQL sent to leaves | Actual execution statistics | Per-partition execution detail |
 | Query executes | No | No | Yes | Yes |
-| Row counts | Estimated | Estimated | Estimated + Actual | Estimated + Actual |
-| Timing per operator | No | No | Yes | Yes |
-| Memory usage | No | No | Yes | Yes |
-| Network traffic | No | No | Yes | Yes |
+| Row counts | Estimated | Estimated | Estimated + Actual | Estimated + Actual + per partition |
+| Timing per operator | No | No | Yes | Yes + avg/stddev/max per partition |
+| Memory usage | No | No | Yes | Yes + per partition breakdown |
+| Network traffic | No | No | Yes | Yes + per partition breakdown |
 | Leaf SQL shown | No | Yes — in query:[] | No | Yes |
-| Segment scan stats | No | No | Yes | Yes |
-| Broadcast confirmation | table_type:reference | STRAIGHT_JOIN shown | network_traffic:0.112KB | Full node breakdown |
-| Supported in v8.1 | ✅ | ✅ | ✅ | ❌ |
-| Best used for | Understanding structure | Distributed execution | Diagnosing bottlenecks | Deep node-level debug |
+| Segment scan stats | No | No | Yes | Yes + per partition |
+| Broadcast confirmation | table_type:reference | STRAIGHT_JOIN shown | network_traffic:0.112KB | Per-partition network bytes |
+| Supported in v8.1 | ✅ | ✅ | ✅ | ✅ |
+| Best used for | Understanding structure | Distributed execution | Diagnosing bottlenecks | Deep per-partition debug |
 
 ---
 

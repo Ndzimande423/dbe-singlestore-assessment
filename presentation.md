@@ -194,7 +194,7 @@ The `products` table is a reference table — a full copy lives on every partiti
 
 | Challenge | What Happened | How It Was Resolved |
 |---|---|---|
-| Dev image limits to 2 partitions | Could not create 16 partitions | Used SingleStore v8.1 which predates the restriction — 16 partitions confirmed ✅ |
+| Dev image newer versions limit to 2 partitions | Identified the restriction before attempting — proactively selected v8.1 to avoid it | Used SingleStore v8.1 which predates the restriction — 16 partitions created and confirmed ✅ |
 | Self-managed license unavailable | Could not expand cluster | Containers deployed, commands documented, license request raised |
 | DEBUG PROFILE not in v8.1 | Syntax error on DEBUG PROFILE | Used SHOW PROFILE JSON — provides same per-partition detail ✅ |
 

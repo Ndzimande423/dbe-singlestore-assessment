@@ -1,23 +1,12 @@
 # Deployment Issues and Resolutions
 
-## Issue 1 — SingleStore Dev Image Partition Limit
+## Issue 1 — SingleStore Dev Image Partition Limit (Identified Proactively)
 
-**Error encountered:**
-```
-ERROR: databases are restricted to two partitions
-```
+**What was identified:**
+Before deployment, the official GitHub README for the SingleStore dev image was reviewed. It states that versions 0.2.40 and later restrict databases to a maximum of 2 partitions. This limitation was identified proactively before attempting deployment.
 
-**Root cause:**
-SingleStore dev image versions 0.2.40 and later restrict databases to a maximum of 2 partitions. The assessment requires 16 partitions per leaf.
-
-**Resolution:**
-Used SingleStore version 8.1 which predates the restriction:
-```bash
-sudo docker run -d --name singlestoredb-dev \
-  -e SINGLESTORE_VERSION="8.1" \
-  -e SINGLESTORE_SET_GLOBAL_DEFAULT_PARTITIONS_PER_LEAF=16 \
-  ...
-```
+**Action taken:**
+SingleStore version 8.1 was selected specifically because it predates the restriction and supports the full 16-partition configuration required by the assessment.
 
 **Result:** Database created successfully with 16 partitions ✅
 

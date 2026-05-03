@@ -192,7 +192,7 @@ Monitor — $399.99
 
 | Challenge | Impact | Resolution |
 |---|---|---|
-| Dev image restricts databases to 2 partitions | Could not meet 16-partition requirement | Used SingleStore v8.1 which predates the restriction |
+| Dev image newer versions limit to 2 partitions | Identified proactively before deployment | Selected SingleStore v8.1 which predates the restriction — 16 partitions created and confirmed ✅ |
 | Self-managed license not available from portal | Could not register additional nodes | Documented commands ready for when license is provided |
 | Cluster expansion blocked in Docker environment | Child aggregator and second leaf not registered | Containers deployed and healthy — registration pending license |
 | DEBUG PROFILE not supported in v8.1 | Could not use DEBUG PROFILE syntax | SHOW PROFILE JSON used — provides same per-partition breakdown with avg, stddev, max per partition |

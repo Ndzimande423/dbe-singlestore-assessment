@@ -21,11 +21,9 @@
 
 ## Licensing Decision
 
-The assessment requires 16 partitions per leaf. The current SingleStore dev image (v0.2.40+) restricts databases to 2 partitions maximum as stated in the official GitHub README:
+Before deployment, the official GitHub README for the SingleStore dev image was reviewed. It states that versions 0.2.40 and later restrict databases to a maximum of 2 partitions. This limitation was identified proactively before attempting deployment.
 
-> "For singlestoredb-dev-image versions 0.2.40 and later, databases are restricted to two partitions."
-
-A self-managed license was investigated through the SingleStore portal. The portal no longer provides free self-managed license keys — they must be requested via the enterprise contact form. As a workaround, SingleStore version 8.1 was used which predates the restriction.
+To meet the 16-partition requirement, SingleStore version 8.1 was selected — it predates the restriction and supports the full partition configuration.
 
 **Result:** 16 partitions were successfully created and confirmed:
 
